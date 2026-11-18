@@ -1,0 +1,68 @@
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  logic-tests:
+    # Pure-logic unit tests (INI parser, presets, clamping) - no engine needed.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build and run config tests
+        run: |
+          g++ -std=c++20 -Wall -Wextra -Werror -I src tests/test_config.cpp -o test_config
+          ./test_config
+
+  windows-dll:
+    runs-on: windows-latest
+    needs: logic-tests
+    env:
+      VCPKG_ROOT: ${{ github.workspace }}/vcpkg
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Clone vcpkg at the pinned baseline
+        shell: pwsh
+        run: |
+          $cfg = Get-Content vcpkg-configuration.json | ConvertFrom-Json
+          git clone https://github.com/microsoft/vcpkg.git $env:VCPKG_ROOT
+          git -C $env:VCPKG_ROOT checkout $cfg.'default-registry'.baseline
+          & "$env:VCPKG_ROOT/bootstrap-vcpkg.bat" -disableMetrics
+
+      - name: Resolve Color-Glass registry baseline
+        # The registry baseline is a moving commit; resolve the current HEAD on the runner and
+        # write it into vcpkg-configuration.json. PIN the printed value in the repo once a build is good.
+        shell: pwsh
+        run: |
+          $sha = (git ls-remote https://gitlab.com/colorglass/vcpkg-colorglass HEAD).Split("`t")[0]
+          if (-not $sha) { throw "could not resolve registry HEAD" }
+          Write-Host "Color-Glass registry HEAD: $sha"
+          $cfg = Get-Content vcpkg-configuration.json | ConvertFrom-Json
+          $cfg.registries[0].baseline = $sha
+          $cfg | ConvertTo-Json -Depth 10 | Set-Content vcpkg-configuration.json
+
+      - name: Configure
+        shell: pwsh
+        run: |
+          cmake -B build -S . -G "Visual Studio 17 2022" -A x64 `
+            -DCMAKE_TOOLCHAIN_FILE="$env:VCPKG_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows-static `
+            -DVCPKG_HOST_TRIPLET=x64-windows-static
+
+      - name: Build
+        run: cmake --build build --config Release
+
+      - name: Stage MO2/Vortex-style package
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist/SKSE/Plugins | Out-Null
+          Copy-Item build/Release/AdvancedViewDistance.dll dist/SKSE/Plugins/
+          Copy-Item data/SKSE/Plugins/AdvancedViewDistance.ini dist/SKSE/Plugins/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: AdvancedViewDistance
+          path: dist
