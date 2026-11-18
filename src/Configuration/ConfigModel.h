@@ -91,8 +91,8 @@ namespace avd
 		if (!std::isfinite(a_value)) {
 			return 1.0f;
 		}
-		const float maxMult = std::isfinite(a_maxMult) ? std::min(std::max(a_maxMult, 1.0f), kHardMaxMultiplier) : 1.0f;
-		return std::min(std::max(a_value, kMinMultiplier), maxMult);
+		const float maxMult = std::isfinite(a_maxMult) ? (std::min)((std::max)(a_maxMult, 1.0f), kHardMaxMultiplier) : 1.0f;
+		return (std::min)((std::max)(a_value, kMinMultiplier), maxMult);
 	}
 
 	struct Config
